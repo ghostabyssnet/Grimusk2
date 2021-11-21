@@ -3,6 +3,8 @@ import muskos as musk
 
 # TODO:
 # [ ] enable printing to console instead of curses as a toggle
+# [ ] GASM compiler
+
 
 # -----------------
 # curses visualizer
@@ -49,6 +51,11 @@ def update_screen(pc, stdscr, windows):
     print_ram(pc, stdscr, windows, 0, 0)
     print_ram(pc, stdscr, windows, 1, 0)
     stdscr.refresh()
+
+# TODO: delete me
+def placeholder_del_me(pc):
+    pc.cmu.cache[0].alloc(10, [0, 0, 0, 0, 0])
+    pc.cmu.cache[0].add(10, [0, 0, 0, 0, 0])
 
 # initializes screen    
 def init_screen(stdscr):
@@ -98,6 +105,7 @@ def print_ram(pc, screen, win, _type, start):
     
 def main_loop(stdscr, pc):
     windows = init_windows(stdscr) # init our screen windows
+    placeholder_del_me(pc)
     while (QUIT_FLAG == False):
         # update screen
         update_screen(pc, stdscr, windows)

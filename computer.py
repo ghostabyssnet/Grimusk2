@@ -3,7 +3,6 @@ import random
 # init
 # ----
 
-# TODO: use this on main.py if muskOS is being used (ifcheck)
 MAX_RAM = 256 # 256 blocks of 4 integers instead
 # still 1024 integers in total
 
@@ -14,6 +13,11 @@ CACHE_LAYERS = 3 # how many cache layers we have
 ALLOC_SIZE = MAX_RAM / 4 # 1/4 of ram, that's what windows tends to use
 
 CPU_CORES = 2 # how many cores we have
+
+# defines the template for our memory tags
+# or gets a tag from an address
+def get_tag(addr):
+    return addr + 1024 # simple yet effective template
     
 # defines how much memory to allocate for caching purposes
 def alloc():
@@ -74,7 +78,11 @@ def init_instr(size):
 
 # instruction type
 class instr_t():
-    payload = [0, 0, 0, 0, 0]
+    # our instruction payload now has 1 more bit
+    # for better compatibility with words 
+    # (they have 4 bytes of data)
+    payload = [0, 0, 0, 0, 0, 0]
+    # [OPCODE, IS_WORD, byte1, byte2, byte3, byte4]
 
 # word type
 class word_t(): # each word has 4 integers as data
@@ -83,11 +91,12 @@ class word_t(): # each word has 4 integers as data
 # memory block
 class block_t():
     word = word_t()
-    updated = False # se ta atualizado
-
+    updated = False # check if updated
+    tag = 0 # flag for fully associative mapping
+    
 # ram info
-class info_t():
-    cost = 0 # custo
+class ram_t():
+    cost = 0
     hit = 0 # ram hit
     
 # cache line
@@ -98,6 +107,13 @@ class line_t():
     valid = False # valid flag: set to true when allocated
     updated = False # updated flag: set to true when... updating (writing)
     tag = 0 # flag for fully associative mapping
+    used = 0 # replaces the offset field so it isn't technically cheating
+    # counts how many uses we have for LRU
+    
+    # event: this is fired whenever this line is used
+    def on_use(self):
+        self.used += 1
+        
 # cache definition
 # as seen in
 # https://www.gatevidyalay.com/cache-mapping-cache-mapping-techniques/
@@ -106,13 +122,92 @@ class cache_t():
     cost = 0 # custo
     hit = 0 # cacheHit
     miss = 0 # cache miss
+    # policy: write-back
+    
+    # alloc and update are almost aliases for the same thing (for now)
+    # see document #2
+    def alloc(self, addr, word_data):
+        self.lines[addr].word.data = word_data # sets data
+        self.lines[addr].valid = True # it's now valid
+        self.lines[addr].updated = True
+        self.lines[addr].tag = get_tag(addr) # sets tag to template
+        self.lines[addr].on_use()
+        
+    # ditto
+    def update(self, addr, word_data):
+        self.lines[addr].word.data = word_data
+        self.lines[addr].valid = True
+        self.lines[addr].updated = True
+        self.lines[addr].tag = get_tag(addr) # sets tag to template
+        
+    def evict(self, addr):
+        if (self.lines[addr].updated == False):
+            self.lines[addr].valid = False
+            return -1
+        else:
+            data = self.lines[addr].word.data
+            self.lines[addr].valid = False
+            self.lines[addr].updated = False
+            return data
+
+    def add(self, addr, data):
+        if (self.lines[addr].valid == False):
+            self.alloc(addr, data)
+        else:
+            self.update(addr, data)
+        self.lines[addr].tag = addr + 1024
+        
+    def remove(self, ram, addr):
+        data = self.evict(addr, word)
+        b = word_t()
+        b.data = data
+        if (data != -1):
+            # TODO: change below to function
+            ram.blocks[addr].word = b
+            
+    # gets free address if cache has it
+    def get_free(self):
+        result = -1 # -1 = none
+        x = 0
+        while (x < len(self.lines)): # loop all cache lines
+            if (self.lines[x].valid == False):
+                result = x # returns lines addr
+            x += 1
+        return result
+
+    # boolean to check if cache has free space
+    def has_space(self):
+        if (self.get_free() != -1):
+            return True
+        else:
+            return False
+    
+    # frees the least recently used space (LRU)
+    def collect(self):
+        if (self.has_space() == True):
+            return -1 # do nothing if we still have space left
+        line = -1 # result line_id
+        uses = 9999999999 # aux
+        x = 0
+        while (x < len(self.lines)): # loop lines
+            if (self.lines[x].used < uses):
+                uses = self.lines[x].used
+                line = x
+            x += 1
+        return self.evict(line) # evicts garbage line
+        # and returns data for us to add
+        
+    # write-back policy: this event is fired
+    # on cache miss. 
+    def on_miss(self, cost):
+        pass
             
 # central memory unit    
 class cmu_t(): # also known as UCM in portuguese
     instr = [] # instruction memory (array of instr_t payloads)
     blocks = [] # RAM data (array of block_t)
     cache = [] # cache data (array of line_t)
-    info = info_t() # block info
+    ram = ram_t() # blocks (ram) info datatype
     # our professor told us we could use blocks for this instead
     # but we're no cowards
     def init_blocks(self):
@@ -125,7 +220,7 @@ class cmu_t(): # also known as UCM in portuguese
         self.init_blocks()
         self.init_cache()
         self.init_instr()
-
+        
 # cpu core
 class core_t():
     threads = [] # assigned threads (instruction sets)
