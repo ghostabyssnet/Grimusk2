@@ -6,7 +6,7 @@ logo2='(,-.`._,\'(       |\`-/|\'      muskOS\n'
 logo3='    `-.-\' \ )-`( , o o)   made for Grimusk\n'
 logo4='          `-    \`_`\"\'-\n'
 
-CPU_SPEED = 500 # cpu speed in miliseconds
+CPU_SPEED = 100 # cpu speed in miliseconds
 
 def boot(stdscr):
     pc = c.computer

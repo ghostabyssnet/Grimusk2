@@ -1,6 +1,7 @@
 import curses
 import muskos as musk
 import computer as c
+import test_cases as test
 
 # TODO:
 # [ ] enable printing to console instead of curses as a toggle
@@ -18,10 +19,10 @@ import computer as c
 # -- save from ram to disk when no free ram
 # -- warn when disk is full and can't be saved
 #
-# [ ] load from cache
-# [ ] change priority when loading from a higher cache
-# [ ] load from ram when not on cache
-# [ ] load from disk when not on ram
+# [!] load from cache
+# [!] change priority when loading from a higher cache
+# [!] load from ram when not on cache
+# -- load from disk when not on ram
 # [ ] create data when it's nowhere? design?
 
 # -----------------
@@ -34,6 +35,16 @@ WIN_MEMORY_INSTR = 2
 WIN_MEMORY_DATA = 3
 WIN_CPU = 4
 WIN_GRIMUSK = 5
+
+def init_colors():
+    curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    curses.init_pair(2, curses.COLOR_BLUE, curses.COLOR_BLACK)
+    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+    curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)
+    curses.init_pair(5, curses.COLOR_RED, curses.COLOR_BLACK)
+    curses.init_pair(6, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    # debug messages
+    curses.init_pair(7, curses.COLOR_BLACK, curses.COLOR_WHITE)
 
 def init_windows(stdscr):
     result = []
@@ -50,12 +61,7 @@ def init_windows(stdscr):
     result.append(win_cpu)
     result.append(win_grimusk)
     stdscr.refresh()
-    curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
-    curses.init_pair(2, curses.COLOR_BLUE, curses.COLOR_BLACK)
-    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
-    curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)
-    curses.init_pair(5, curses.COLOR_RED, curses.COLOR_BLACK)
-    curses.init_pair(6, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    init_colors()
     for x in range (0, len(result)):
         result[x].attron(curses.color_pair(1 + x))
         #result[x].border('*','*','*','*','*','*','*','*')
@@ -66,6 +72,8 @@ def init_windows(stdscr):
 def update_screen(pc, stdscr, windows):
     print_ram(pc, stdscr, windows, 0, 0)
     print_ram(pc, stdscr, windows, 1, 0)
+    pc.screen.print_console(windows[WIN_CONSOLE])
+    pc.screen.print_special(windows[WIN_GRIMUSK])
     stdscr.refresh()
 
 # TODO: delete me
@@ -86,6 +94,7 @@ def init_screen(stdscr):
     curses.cbreak()
     stdscr.keypad(True)
     stdscr.refresh()
+    stdscr.nodelay(True)
 
 # turn off computer
 def turn_off(stdscr, pc):
@@ -116,13 +125,40 @@ def print_ram(pc, screen, win, _type, start):
 # ---------
 # functions
 # ---------
+
+def handle_key(key, pc, stdscr, win):
+    if (key == curses.KEY_NPAGE):
+        pc.screen.con_dex(+1)
+        #msg = 'DEBUG: PAGEUP [' + str(pc.screen.console_index) + ']'
+        #c.debug(pc, msg)
+        #z = len(pc.screen.console_msg)
+        #y = pc.screen.console_index
+        #msg = 'size: ' + str(z) + ', index: ' + str(y)
+        #c.debug(pc, msg)
+    elif (key == curses.KEY_PPAGE):
+        pc.screen.con_dex(-1)
+        #msg = 'DEBUG: PAGEDOWN [' + str(pc.screen.console_index) + ']'
+        #c.debug(pc, msg)
+        #z = len(pc.screen.console_msg)
+        #y = pc.screen.console_index
+        #msg = 'size: ' + str(z) + ', index: ' + str(y)
+        #c.debug(pc, msg)
     
 def main_loop(stdscr, pc):
     windows = init_windows(stdscr) # init our screen windows
+    key = ''
+    # testing
+    if (test.ON == True): 
+        t = test.cases_t()
+    t.cases[0].run(pc, windows[WIN_CONSOLE])
+    #c.debug(pc, 'Testing CPU')
     while (pc.QUIT_FLAG == False):
         # update screen
+        key = stdscr.getch()
+        handle_key(key, pc, stdscr, windows)
+        #curses.napms(50)
         update_screen(pc, stdscr, windows)
-        placeholder_del_me(pc, windows[WIN_CONSOLE]) # FIXME
+        #placeholder_del_me(pc, windows[WIN_CONSOLE]) # FIXME
         # process new data
         musk.process(pc, stdscr, windows)
         # wait

@@ -20,7 +20,8 @@ CPU_CORES = 2 # how many cores we have
 # screen variables
 # ----------------
 
-# TODO
+# turns debug messages on/off
+DEBUG = True
 
 # ----------
 # error list
@@ -32,6 +33,12 @@ CACHE_ALLOC_ERROR = 'CACHE_ALLOC_ERROR'
 # -----
 # start
 # -----
+
+# debugging
+def debug(pc, message):
+    if (DEBUG != True): return
+    pc.screen.console_log(str(message), 7)
+    pc.screen.special_log(str(message))
     
 # defines how much memory to allocate for caching purposes
 def alloc():
@@ -488,7 +495,7 @@ class disk_t():
 
 # screen messages
 class msg_t():
-    message = ''
+    message = 'xxx'
     color = 1
 
 # screen/console/monitor
@@ -499,28 +506,38 @@ class screen_t():
     data_index = [0, 0] # cache/addr
     cpu_index = 0 # index for showing cpu
     console_index = 0 # index for showing console
-    color_length = 6 # how many colors we have
+    color_length = 7 # how many colors we have
     height = 22 # height of console and ram screens
+    special_message = ''
+    
+    def con_dex(self, value):
+        x = self.console_index + value
+        if (x < 0): return
+        elif (x > len(self.console_msg) - self.height): return
+        self.console_index = x
     
     def __init__(self):
         self.console_log('     Welcome to Grimusk 2', 4)
-        for x in range(0, 21):
-            self.console_log('', 1)
+        for x in range(0, 24):
+            self.console_log(str(x), 1)
     
+    def special_log(self, message):
+        self.special_message = message
+            
     def console_log(self, message, color = 1):
         if (color == 0 or color > self.color_length): color = 1
         if len(message) >= 60:
             r = msg_t()
             r.message = 'this message was too big'
             r.color = 5
-            self.console_msg.insert(0, r)
+            self.console_msg.append(r)
             return
         if len(message) < 30:
             r = msg_t()
             r.message = message
             r.color = color
             # add to message list
-            self.console_msg.insert(0, r)
+            self.console_msg.append(r)
         else:
             x = msg_t()
             x.message = message[0:30]
@@ -528,27 +545,39 @@ class screen_t():
             y = msg_t()
             y.message = message[30:(len(message))]
             y.color = color
-            self.console_msg.insert(0, x)
-            self.console_msg.insert(0, y)
+            self.console_msg.append(x)
+            self.console_msg.append(y)
+        self.con_dex(+1)
+    
+    def get_console(self):
+        r = []
+        start = self.console_index
+        for x in range(start, start + 22):
+            r.append(self.console_msg[x])
+        return r
     
     def print_console(self, win): # to console
-        temp = self.console_msg
-        #if len(temp) < 22:
-        #    for x in range(len(temp), 22):
-        #        r = msg_t()
-        #        temp.insert(x, r)
-        for y in range(0, 22):
-            start = self.console_index + y
-            msg = temp[len(temp) - 1 - start]
+        #win.clear()
+        array = self.get_console()
+        for y in range(0, len(array)):
+            msg = array[y]
             end = msg.message
-            _y = start + 1
-            _print(win, _y, end, msg.color)
+            _y = y + 1
+            win.move(_y, 1)
+            win.clrtoeol()
             win.refresh()
+            _print(win, _y, end, msg.color)
+        win.refresh()
 
     def print_cpu(self, win, start):
         pass # TODO
     
+    def print_special(self, win):
+        _print(win, 2, self.special_message, 7)
+        win.refresh()
+    
 def _print(win, y, msg, color):
+    if (y > 22): return
     try:
         win.addstr(y, 1, msg, curses.color_pair(color))
     except curses.error:
