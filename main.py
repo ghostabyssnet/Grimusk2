@@ -1,19 +1,32 @@
 import curses
 import muskos as musk
+import computer as c
 
 # TODO:
 # [ ] enable printing to console instead of curses as a toggle
 # [ ] GASM compiler
 # [ ] instruction set remake: now search for tag instead of addr
 # https://inst.eecs.berkeley.edu/~cs61c/resources/su18_lec/Lecture14.pdf
-# [ ] change collect to be less garbage (wtf is that result)
-
+# [x] change collect to be less garbage (wtf is that result)
+# [ ] count total lines of code
+# 
+# -----------------------
+# data saving and loading
+# -----------------------
+# [ ] save to cache
+# [ ] save to ram when no free slots
+# [ ] save from ram to disk when no free ram
+# [ ] warn when disk is full and can't be saved
+#
+# [ ] load from cache
+# [ ] change priority when loading from a higher cache
+# [ ] load from ram when not on cache
+# [ ] load from disk when not on ram
+# [ ] create data when it's nowhere? design?
 
 # -----------------
 # curses visualizer
 # -----------------
-    
-QUIT_FLAG = False # if we should exit the program
 
 WIN_INPUT = 0
 WIN_CONSOLE = 1
@@ -57,8 +70,14 @@ def update_screen(pc, stdscr, windows):
 
 # TODO: delete me
 def placeholder_del_me(pc):
-    pc.cmu.cache[0].alloc(10, [0, 0, 0, 0, 0])
-    pc.cmu.cache[0].add(10, [0, 0, 0, 0, 0])
+    p = c.data_t()
+    w = c.word_t()
+    # -----
+    w.data = [0, 0, 0, 0, 0]
+    p.word = w
+    p.tag = 128
+    # -----
+    pc.cpu.cache[0].alloc(10, p)
 
 # initializes screen    
 def init_screen(stdscr):
@@ -109,7 +128,7 @@ def print_ram(pc, screen, win, _type, start):
 def main_loop(stdscr, pc):
     windows = init_windows(stdscr) # init our screen windows
     placeholder_del_me(pc)
-    while (QUIT_FLAG == False):
+    while (pc.QUIT_FLAG == False):
         # update screen
         update_screen(pc, stdscr, windows)
         # process new data

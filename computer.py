@@ -10,14 +10,20 @@ MAX_DRIVE = 512 # HDD/SSD size
 
 CACHE_LAYERS = 3 # how many cache layers we have
 
-ALLOC_SIZE = MAX_RAM / 4 # 1/4 of ram, that's what windows tends to use
+ALLOC_SIZE = 135 # in total. 45 lines for each cache if using 3 layers
 
 CPU_CORES = 2 # how many cores we have
 
-# defines the template for our memory tags
-# or gets a tag from an address
-def get_tag(addr):
-    return addr + 1024 # simple yet effective template
+# ----------
+# error list
+# ----------
+
+RAM_FULL = 'RAM_SIZE_ERROR'
+CACHE_ALLOC_ERROR = 'CACHE_ALLOC_ERROR'
+
+# -----
+# start
+# -----
     
 # defines how much memory to allocate for caching purposes
 def alloc():
@@ -31,7 +37,7 @@ def init_data(size):
     x = 0
     aux = -4 # initial address (gets set to 0)
     while (x < MAX_RAM):
-        for y in range(0, 3):
+        for y in range(0, 4):
             b.data[y] = random.randint(0, 128)
         c.word = b
         aux += 4
@@ -52,8 +58,8 @@ def init_cache(size):
         a = cache_t() # line_t array
         while (x < _alloc):
             addr += 1
-            for y in range(0, 3):
-                b.data[y] = "NULL" # initializes location as NULL
+            for y in range(0, 4):
+                b.data[y] = 0 # initializes location as NULL
             c.word = b
             aux += 4
             c.addr = aux
@@ -93,11 +99,21 @@ class block_t():
     word = word_t()
     updated = False # check if updated
     tag = 0 # flag for fully associative mapping
+    used = 0 # timestamp flag for LRU
+    # TODO: update the Updated var to false when moving
+    # data to cache
     
-# ram info
-class ram_t():
-    cost = 0
-    hit = 0 # ram hit
+    # event: this is fired whenever this block is used
+    def on_use(self, time):
+        # sets used timestamp to now
+        self.used = time
+    
+    # convert its info to grimedata
+    def to_data(self):
+        data = data_t()
+        data.tag = self.tag
+        data.word = self.word
+        return data
     
 # cache line
 # we used cornell university's lecture as material
@@ -130,7 +146,7 @@ class data_t():
     
 # grime bufferdata
 # a container for data extracted from a cache
-class grimebuf_t()
+class grimebuf_t():
     word = word_t()
     tag = 0
     addr = 0
@@ -143,6 +159,7 @@ class cache_t():
     cost = 0 # custo
     hit = 0 # cacheHit
     miss = 0 # cache miss
+    queue = [] # grimebuf queue: send stuff back to ram on update
     # policy: write-back
     
     # -------------------------
@@ -197,7 +214,7 @@ class cache_t():
     
     # checks if something with this tag is within our cache lines
     # returns -1 if it doesn't
-    def has_tag(self, tag):
+    def get_tag(self, tag):
         addr = -1
         x = 0
         while (x < len(self.lines)):
@@ -223,6 +240,9 @@ class cache_t():
         # transfer the removed data to an object
         data = grimebuf_t()
         linedata = self.evict(line)
+        if (linedata == -1):
+            data.addr = line
+            return data
         data.addr = line
         data.word = linedata.word
         data.tag = linedata.tag
@@ -230,7 +250,7 @@ class cache_t():
     
     # pushes a line to a free slot
     def push(self, data):
-        where = self.has_tag()
+        where = self.get_tag(data.tag)
         if (where != -1):
             # if we already have this tag stored, we update its data
             self.update(where, data)
@@ -240,27 +260,143 @@ class cache_t():
                 # if there's space, we store it there
                 self.alloc(where, data)
             else:
+                # if there's no space, we evict a line, send it's
+                # info to ram, then store our info there
                 to_ram = self.collect()
-                
+                # if shtf, we return a fatal error
+                # but this shouldn't happen ever
+                if (to_ram.addr == -1):
+                    return CACHE_ALLOC_ERROR
+                # send evicted data to queue
+                self.to_queue(to_ram)
+                # realloc evicted addr with our data
+                self.alloc(to_ram.addr, data)
+    
+    # ---------
+    # queue API
+    # ---------
+    
+    # sends grimebuf data to queue
+    def to_queue(self, data):
+        self.queue.append(data)
+        
+    # clears our queue
+    # WARNING: data saving should be handled by the PC
+    # before calling this (pc.cache_queue())
+    def clear_queue(self):
+        self.queue = []    
+    
+    # ---------
+    # event API
+    # ---------
+    
     # write-back policy: this event is fired
     # on cache miss. 
     def on_miss(self, cost):
         pass
-            
-# central memory unit    
+    
+    # on cache update
+    def on_update(self):
+        pass
+    
+# central memory unit
+# we'll convert it to an array of RAM
+# eventually, to simulate multiple memory cards
 class cmu_t(): # also known as UCM in portuguese
     instr = [] # instruction memory (array of instr_t payloads)
     blocks = [] # RAM data (array of block_t)
-    ram = ram_t() # blocks (ram) info datatype
-    # our professor told us we could use blocks for this instead
-    # but we're no cowards
+    queue = [] # queue for hard drive saving
+    cost = 0
+    hit = 0
+    
+    def alloc(self, addr, data):
+        self.blocks[addr].word.data = data.word.data # sets data
+        self.blocks[addr].updated = True
+        self.blocks[addr].tag = data.tag # sets tag to template
+        
+    # ditto
+    def update(self, addr, data):
+        self.blocks[addr].word.data = data.word.data
+        self.blocks[addr].updated = True
+        self.blocks[addr].tag = data.tag # sets tag to template
+    
+    # returns data_t
+    def evict(self, addr):
+        data = self.blocks[addr].to_data()
+        self.blocks[addr].updated = False
+        return data
+    
+    def collect(self):
+        if (self.has_space() == True):
+            return -1 # do nothing if we still have space left
+        block = -1 # result line_id
+        uses = 9999999999 # aux
+        x = 0
+        while (x < len(self.blocks)): # loop blocks
+            if (self.blocks[x].used < uses):
+                uses = self.blocks[x].used
+                block = x
+            x += 1
+        # transfer the removed data to an object
+        data = grimebuf_t()
+        blockdata = self.evict(block)
+        data.addr = block
+        data.word = blockdata.word
+        data.tag = blockdata.tag
+        return data # evicts garbage block and returns its data
+    
+    # checks if RAM blocks have a certain tag
+    def get_tag(self, tag):
+        addr = -1
+        x = 0
+        while (x < len(self.blocks)):
+            if (self.blocks[x].tag == tag):
+                addr = x
+                break
+            x += 1
+        return addr
+    
+    # checks if RAM has a free block slot
+    def get_free(self):
+        result = -1
+        # loop all blocks
+        for x in range(0, len(self.blocks)):
+            if (self.blocks[x].flag != 0):
+                result = x
+                break
+        return result
+                
+    # -------------
+    # data handling
+    # -------------
+    
+    # saves data into RAM
+    # returns 0 for success or fatal error
+    def save_to_ram(self, data):
+        where = self.get_tag(data.tag)
+        if (where != -1):
+            # if we already have this tag stored, we update its data
+            self.update(where, data)
+        else:
+            where = self.get_free()
+            if (where != -1):
+                # if there's space, we store it there
+                self.alloc(where, data)
+            else:
+                # returns an overflow error: RAM is full
+                return RAM_FULL
+        return 0
+    
+    # ---------------
+    # everything else
+    # ---------------
+    
     def init_blocks(self):
         self.blocks = init_data(MAX_RAM)
     def init_instr(self):
         self.instr = init_instr(MAX_RAM)
     def __init__(self):
         self.init_blocks()
-        self.init_cache()
         self.init_instr()
         
 # cpu core
@@ -278,7 +414,7 @@ class cpu_t():
     mbr = []
     ih = False # interruption handler
     cores = [] # cpu cores
-    cache = [] # cache data (array of line_t)
+    cache = [] # cache data (array of (array of line_t))
     def init_cores(self):
         z = []
         for x in range(0, CPU_CORES):
@@ -302,14 +438,78 @@ class disk_t():
 # our computer
 class computer():
     status = 'NULL'
+    QUIT_FLAG = False # if we should quit
     cpu = cpu_t()
     cmu = cmu_t()
     disk = disk_t()
     # screen = (is defined in our visualizer)
     
+    # --------------
+    # error handling
+    # --------------
+    
+    # shtf
+    def kernel_panic(self):
+        self.QUIT_FLAG = True
+    
+    # deals with fatal errors
+    def fatal_error(self, error):
+        if (error == RAM_FULL):
+            self.kernel_panic()
+    
+    # ------------------------
+    # inter-hardware functions
+    # ------------------------
+    
+    # gets data from either cache or RAM
+    # using its tag as reference
+    # we use fully associative mapping and look for
+    # a tag instead of an address, as seen in
+    # https://inst.eecs.berkeley.edu/~cs61c/resources/su18_lec/Lecture14.pdf
+    # TODO: look in parallel using our CPU's cores
+    def get_data(self, tag):
+        found = -1 # flag. will keep being -1 until we find something
+        # try getting from caches
+        # loop all caches
+        for x in range(0, CACHE_LAYERS):
+            
+        # try getting from RAM
+    
+    # stores data into memory, handling caching
+    # as well using fully associative mapping
+    def store_data(self, data):
+        
+    
+    # retrieves data from HDD
+    # using its tag as reference
+    def get_drive(self, tag):
+        pass
+    
+    # stores data into HDD
+    def store_drive(self, data):
+        pass
+    
+    # saves cache queues into RAM
+    def save_cache_queue(self):
+        # loops all caches
+        for x in range(0, CACHE_LAYERS):
+            queue = self.cpu.cache[x].queue
+            # loops this cache's queue
+            for x in range(0, len(queue)):
+                this = self.cmu.save_to_ram(queue[x]) # queue[x].data?
+                if (this == RAM_FULL):
+                    self.fatal_error(RAM_FULL)
+                    return
+            # clear this cache's queue
+            self.cpu.cache[x].clear_queue()
+
 # ----------
 # global API
 # ----------
+
+# stores a grimebuf to ram
+def cache_to_ram(data):
+    pass
 
 def cache_transfer(_from, _to, addr):
     _to.lines[addr] = _from.lines[addr]

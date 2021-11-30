@@ -18,7 +18,6 @@ RAM_ID = c.CACHE_LAYERS # RAM is after all caches
     
 # get from cmu (with cache and stuff)
 # using fully associative mapping
-# https://inst.eecs.berkeley.edu/~cs61c/resources/su18_lec/Lecture14.pdf
 def cmu_get(pc, addr):
     _tag = c.get_tag(addr) # which tag to check for
     found = False
