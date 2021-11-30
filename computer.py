@@ -42,43 +42,34 @@ def debug(pc, message):
     
 # defines how much memory to allocate for caching purposes
 def alloc():
-    _alloc = int((ALLOC_SIZE / CACHE_LAYERS)) # allocates 1/x of our cache memory
-    return _alloc
+    return int((ALLOC_SIZE/CACHE_LAYERS))
     
 def init_data(size):
     a = []
     b = word_t() # initialize a new word
     c = block_t() # initialize memory block
     x = 0
-    aux = -4 # initial address (gets set to 0)
     while (x < MAX_RAM):
         for y in range(0, 4):
             b.data[y] = random.randint(0, 128)
         c.word = b
-        aux += 4
-        c.addr = aux # set end address to end of word (or 4 int)
         a.append(c) # sends block to array of blocks
         x += 1
     return a # returns array of blocks
 
-def init_cache(size):
+def init_cache():
     b = word_t() # initialize word
+    for y in range(0, 4):
+        b.data[y] = 0 # initializes location as NULL
     c = line_t() # initialize cache line
     d = [] # cache_t array (array of array of line_t)
-    _alloc = alloc() # how much to alloc
-    addr = -1
-    aux = -4
     for z in range(0, CACHE_LAYERS):
         x = 0
         a = cache_t() # line_t array
         a.cache_id = z
-        while (x < _alloc):
-            addr += 1
-            for y in range(0, 4):
-                b.data[y] = 0 # initializes location as NULL
+        while (x < alloc() / CACHE_LAYERS):
+            if (x >= alloc() / CACHE_LAYERS): break
             c.word = b
-            aux += 4
-            c.addr = aux
             a.lines.append(c)
             x += 1
         d.append(a)
@@ -87,7 +78,7 @@ def init_cache(size):
 def init_instr(size):
     a = []
     b = instr_t()
-    b.payload = [0, 0, 0, 0, 0]
+    b.payload = [0, 0, 0, 0, 0, 0]
     x = 0
     while (x < size):
         a.append(b)
@@ -480,7 +471,7 @@ class cpu_t():
             z.append(c)
         return z
     def init_cache(self):
-        self.cache = init_cache(ALLOC_SIZE)
+        self.cache = init_cache()
     def __init__(self):
         self.cores = self.init_cores()
         self.init_cache()

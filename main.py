@@ -14,6 +14,7 @@ import test_cases as test
 # -----------------------
 # data saving and loading
 # -----------------------
+#
 # [!] save to cache
 # [!] save to ram when no free slots
 # -- save from ram to disk when no free ram
@@ -24,6 +25,9 @@ import test_cases as test
 # [!] load from ram when not on cache
 # -- load from disk when not on ram
 # [ ] create data when it's nowhere? design?
+#
+# [x] rewrite init_data and others
+
 
 # -----------------
 # curses visualizer
@@ -76,18 +80,6 @@ def update_screen(pc, stdscr, windows):
     pc.screen.print_special(windows[WIN_GRIMUSK])
     stdscr.refresh()
 
-# TODO: delete me
-def placeholder_del_me(pc, win):
-    #p = c.data_t()
-    #w = c.word_t()
-    # -----
-    #w.data = [0, 0, 0, 0, 0]
-    #p.word = w
-    #p.tag = 128
-    # -----
-    #pc.cpu.cache[0].alloc(10, p)
-    pc.screen.print_console(win)
-
 # initializes screen    
 def init_screen(stdscr):
     curses.noecho()
@@ -107,6 +99,7 @@ def turn_off(stdscr, pc):
 # screens
 # -------
 
+# TODO: remake
 def print_ram(pc, screen, win, _type, start):
     # max size = 22
     win[WIN_MEMORY_INSTR].addstr(1, 1, 'INSTR RAM')
@@ -118,7 +111,7 @@ def print_ram(pc, screen, win, _type, start):
             win[WIN_MEMORY_INSTR].refresh()
     else: # else = data
         for x in range (2, 23):
-            text = hex(pc.cmu.blocks[start + (x-2)].addr)
+            text = hex(pc.cmu.blocks[start + (x-2)].tag)
             win[WIN_MEMORY_DATA].addstr(x, 1, text)
             win[WIN_MEMORY_DATA].refresh()
 
@@ -127,40 +120,44 @@ def print_ram(pc, screen, win, _type, start):
 # ---------
 
 def handle_key(key, pc, stdscr, win):
+    # TODO: add checker for which screen we're in
     if (key == curses.KEY_NPAGE):
         pc.screen.con_dex(+1)
-        #msg = 'DEBUG: PAGEUP [' + str(pc.screen.console_index) + ']'
-        #c.debug(pc, msg)
-        #z = len(pc.screen.console_msg)
-        #y = pc.screen.console_index
-        #msg = 'size: ' + str(z) + ', index: ' + str(y)
-        #c.debug(pc, msg)
     elif (key == curses.KEY_PPAGE):
         pc.screen.con_dex(-1)
-        #msg = 'DEBUG: PAGEDOWN [' + str(pc.screen.console_index) + ']'
-        #c.debug(pc, msg)
-        #z = len(pc.screen.console_msg)
-        #y = pc.screen.console_index
-        #msg = 'size: ' + str(z) + ', index: ' + str(y)
-        #c.debug(pc, msg)
     
 def main_loop(stdscr, pc):
-    windows = init_windows(stdscr) # init our screen windows
+    # init our screen windows
+    win_menu = init_windows(stdscr)
+    win_cache = [] # TODO
+    win_table = [] # TODO
+    windows = win_menu # set menu as base window
     key = ''
     # testing
     if (test.ON == True): 
         t = test.cases_t()
-    t.cases[0].run(pc, windows[WIN_CONSOLE])
-    #c.debug(pc, 'Testing CPU')
+        # run all test cases
+        for x in range(0, len(t.cases)):
+            t.cases[x].run(pc, windows[WIN_CONSOLE])
     while (pc.QUIT_FLAG == False):
-        # update screen
+        
+        # TODO: complete this bullshit
+        if (1 == 1 and windows != win_menu):
+            windows = win_menu
+        # TODO: you get the idea
+        elif (1 == 2 and windows != win_cache):
+            windows = win_cache
+        
+        # handle input
         key = stdscr.getch()
         handle_key(key, pc, stdscr, windows)
-        #curses.napms(50)
+        
+        # update screen
         update_screen(pc, stdscr, windows)
-        #placeholder_del_me(pc, windows[WIN_CONSOLE]) # FIXME
+        
         # process new data
         musk.process(pc, stdscr, windows)
+        
         # wait
         curses.napms(musk.CPU_SPEED) # 500ms
     turn_off(stdscr, pc)
