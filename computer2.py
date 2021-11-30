@@ -115,26 +115,6 @@ class line_t():
         # sets used timestamp to now
         self.used = time
         
-    # converts its own information to grimedata
-    def to_data(self):
-        data = data_t()
-        data.tag = self.tag
-        data.word = self.word
-        return data
-
-# grime linedata
-# a container for which data we store/get from lines/blocks
-class data_t():
-    word = word_t()
-    tag = 0
-    
-# grime bufferdata
-# a container for data extracted from a cache
-class grimebuf_t()
-    word = word_t()
-    tag = 0
-    addr = 0
-    
 # cache definition
 # as seen in
 # https://www.gatevidyalay.com/cache-mapping-cache-mapping-techniques/
@@ -145,34 +125,46 @@ class cache_t():
     miss = 0 # cache miss
     # policy: write-back
     
-    # -------------------------
-    # address related functions
-    # -------------------------
-    
-    def alloc(self, addr, data):
-        self.lines[addr].word.data = data.word.data # sets data
+    # alloc and update are almost aliases for the same thing (for now)
+    # see document #2
+    def alloc(self, addr, word_data):
+        self.lines[addr].word.data = word_data # sets data
         self.lines[addr].valid = True # it's now valid
         self.lines[addr].updated = True
-        self.lines[addr].tag = data.tag # sets tag to template
+        self.lines[addr].tag = get_tag(addr) # sets tag to template
         
     # ditto
-    def update(self, addr, data):
-        self.lines[addr].word.data = data.word.data
+    def update(self, addr, word_data):
+        self.lines[addr].word.data = word_data
         self.lines[addr].valid = True
         self.lines[addr].updated = True
-        self.lines[addr].tag = data.tag # sets tag to template
-    
-    # returns data_t or -1
+        self.lines[addr].tag = get_tag(addr) # sets tag to template
+        
     def evict(self, addr):
         if (self.lines[addr].updated == False):
             self.lines[addr].valid = False
             return -1
         else:
-            data = self.lines[addr].to_data()
+            data = self.lines[addr].word.data
             self.lines[addr].valid = False
             self.lines[addr].updated = False
             return data
+
+    def add(self, addr, data):
+        if (self.lines[addr].valid == False):
+            self.alloc(addr, data)
+        else:
+            self.update(addr, data)
+        self.lines[addr].tag = addr + 1024
         
+    def remove(self, ram, addr):
+        data = self.evict(addr, word)
+        b = word_t()
+        b.data = data
+        if (data != -1):
+            # TODO: change below to function
+            ram.blocks[addr].word = b
+            
     # gets free address if cache has it
     def get_free(self):
         result = -1 # -1 = none
@@ -180,7 +172,6 @@ class cache_t():
         while (x < len(self.lines)): # loop all cache lines
             if (self.lines[x].valid == False):
                 result = x # returns lines addr
-                break
             x += 1
         return result
 
@@ -191,24 +182,7 @@ class cache_t():
         else:
             return False
     
-    # ------------
-    # function API
-    # ------------
-    
-    # checks if something with this tag is within our cache lines
-    # returns -1 if it doesn't
-    def has_tag(self, tag):
-        addr = -1
-        x = 0
-        while (x < len(self.lines)):
-            if (self.lines[x].tag == tag):
-                addr = x
-                break
-            x += 1
-        return addr
-    
     # frees the least recently used space (LRU)
-    # returns grimebuf_t
     def collect(self):
         if (self.has_space() == True):
             return -1 # do nothing if we still have space left
@@ -220,28 +194,19 @@ class cache_t():
                 uses = self.lines[x].used
                 line = x
             x += 1
-        # transfer the removed data to an object
-        data = grimebuf_t()
-        linedata = self.evict(line)
-        data.addr = line
-        data.word = linedata.word
-        data.tag = linedata.tag
-        return data # evicts garbage line and returns its data
+        return [line, self.evict(line)] # evicts garbage line
+        # and returns data for us to add
     
-    # pushes a line to a free slot
-    def push(self, data):
-        where = self.has_tag()
+    def push(self, addr, data):
+        where = self.get_free()
         if (where != -1):
-            # if we already have this tag stored, we update its data
-            self.update(where, data)
+            self.add(addr, data)
+            return 0
         else:
-            where = self.get_free()
-            if (where != -1):
-                # if there's space, we store it there
-                self.alloc(where, data)
-            else:
-                to_ram = self.collect()
-                
+            where = self.collect()
+            line = where[0]
+            data = where[1]
+            self.add()
     # write-back policy: this event is fired
     # on cache miss. 
     def on_miss(self, cost):
@@ -251,11 +216,14 @@ class cache_t():
 class cmu_t(): # also known as UCM in portuguese
     instr = [] # instruction memory (array of instr_t payloads)
     blocks = [] # RAM data (array of block_t)
+    cache = [] # cache data (array of line_t)
     ram = ram_t() # blocks (ram) info datatype
     # our professor told us we could use blocks for this instead
     # but we're no cowards
     def init_blocks(self):
         self.blocks = init_data(MAX_RAM)
+    def init_cache(self):
+        self.cache = init_cache(ALLOC_SIZE)
     def init_instr(self):
         self.instr = init_instr(MAX_RAM)
     def __init__(self):
@@ -277,19 +245,15 @@ class cpu_t():
     mar = 0
     mbr = []
     ih = False # interruption handler
-    cores = [] # cpu cores
-    cache = [] # cache data (array of line_t)
+    cores = []
     def init_cores(self):
         z = []
         for x in range(0, CPU_CORES):
             c = core_t()
             z.append(c)
         return z
-    def init_cache(self):
-        self.cache = init_cache(ALLOC_SIZE)
     def __init__(self):
         self.cores = self.init_cores()
-        self.init_cache()
     
 # hard/solid state disk
 class disk_t():
@@ -306,14 +270,3 @@ class computer():
     cmu = cmu_t()
     disk = disk_t()
     # screen = (is defined in our visualizer)
-    
-# ----------
-# global API
-# ----------
-
-def cache_transfer(_from, _to, addr):
-    _to.lines[addr] = _from.lines[addr]
-    _from.evict(_from, addr) # no need to save our data
-    
-def ram_to_cache(ram, cache, addr):
-    cache.add(self, addr, ram.blocks[addr].word.data)

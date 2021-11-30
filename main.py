@@ -4,6 +4,9 @@ import muskos as musk
 # TODO:
 # [ ] enable printing to console instead of curses as a toggle
 # [ ] GASM compiler
+# [ ] instruction set remake: now search for tag instead of addr
+# https://inst.eecs.berkeley.edu/~cs61c/resources/su18_lec/Lecture14.pdf
+# [ ] change collect to be less garbage (wtf is that result)
 
 
 # -----------------

@@ -10,13 +10,6 @@ import curses
 IDK_WHERE = -1 # default cache allocation id
 RAM_ID = c.CACHE_LAYERS # RAM is after all caches
 
-def cache_transfer(_from, _to, addr):
-    _to.lines[addr] = _from.lines[addr]
-    _from.evict(_from, addr) # no need to save our data
-    
-def ram_to_cache(ram, cache, addr):
-    cache.add(self, addr, ram.blocks[addr].word.data)
-
 # check if addr is stored somewhere already
 #def cmu_has_addr(pc, tag):
 #    found = False
@@ -39,7 +32,7 @@ def cmu_get(pc, addr):
                     pc.cmu.cache[x].hit += 1
                     pc.cmu.cache[x].cost += pow(10, (x+1)) # 10 100 1000...
                     result = pc.cmu.cache[x].lines[y].word.data
-                    pc.cmu.cache[x].lines[y].on_use() # fire on_use event
+                    pc.cmu.cache[x].lines[y].on_use(pc.cpu.pc) # fire on_use event
                     found = True
                     if (x != 0): # if it's not the first cache
                         for z in range(0, c.CACHE_LAYERS):
@@ -70,7 +63,8 @@ def cmu_exists(pc, addr):
                     pc.cmu.cache[x].hit += 1
                     pc.cmu.cache[x].cost += pow(10, (x+1)) # 10 100 1000...
                     result = [x, y] # returns an array containing cacheId : where
-                    pc.cmu.cache[x].lines[y].on_use()
+                    # sends our processor PC timestamp to cacheline
+                    pc.cmu.cache[x].lines[y].on_use(pc.cpu.pc)
                     if (x != 0): # if it's not the first cache
                         for z in range(0, c.CACHE_LAYERS):
                             if (z < x): # apply miss to lower caches
