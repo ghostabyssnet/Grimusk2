@@ -13,10 +13,10 @@ import computer as c
 # -----------------------
 # data saving and loading
 # -----------------------
-# [ ] save to cache
-# [ ] save to ram when no free slots
-# [ ] save from ram to disk when no free ram
-# [ ] warn when disk is full and can't be saved
+# [!] save to cache
+# [!] save to ram when no free slots
+# -- save from ram to disk when no free ram
+# -- warn when disk is full and can't be saved
 #
 # [ ] load from cache
 # [ ] change priority when loading from a higher cache
@@ -69,15 +69,16 @@ def update_screen(pc, stdscr, windows):
     stdscr.refresh()
 
 # TODO: delete me
-def placeholder_del_me(pc):
-    p = c.data_t()
-    w = c.word_t()
+def placeholder_del_me(pc, win):
+    #p = c.data_t()
+    #w = c.word_t()
     # -----
-    w.data = [0, 0, 0, 0, 0]
-    p.word = w
-    p.tag = 128
+    #w.data = [0, 0, 0, 0, 0]
+    #p.word = w
+    #p.tag = 128
     # -----
-    pc.cpu.cache[0].alloc(10, p)
+    #pc.cpu.cache[0].alloc(10, p)
+    pc.screen.print_console(win)
 
 # initializes screen    
 def init_screen(stdscr):
@@ -96,15 +97,6 @@ def turn_off(stdscr, pc):
 # -------
 # screens
 # -------
-
-def print_update(pc, screen, win, message, color = 0): # to update screen, win
-    pass
-
-def print_console(pc, screen, win, message, color = 0): # to LOG_CONSOLE
-    pass
-
-def print_cpu(pc, screen, win, message, color = 0):
-    pass
 
 def print_ram(pc, screen, win, _type, start):
     # max size = 22
@@ -127,15 +119,17 @@ def print_ram(pc, screen, win, _type, start):
     
 def main_loop(stdscr, pc):
     windows = init_windows(stdscr) # init our screen windows
-    placeholder_del_me(pc)
     while (pc.QUIT_FLAG == False):
         # update screen
         update_screen(pc, stdscr, windows)
+        placeholder_del_me(pc, windows[WIN_CONSOLE]) # FIXME
         # process new data
         musk.process(pc, stdscr, windows)
         # wait
         curses.napms(musk.CPU_SPEED) # 500ms
     turn_off(stdscr, pc)
+    if (pc.status == 'KERNEL PANIC'):
+        print('KERNEL PANIC!\n')
     
 def main(stdscr):
     init_screen(stdscr) # inits our visualizer

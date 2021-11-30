@@ -1,4 +1,6 @@
 import random
+import curses
+
 # ----
 # init
 # ----
@@ -13,6 +15,12 @@ CACHE_LAYERS = 3 # how many cache layers we have
 ALLOC_SIZE = 135 # in total. 45 lines for each cache if using 3 layers
 
 CPU_CORES = 2 # how many cores we have
+
+# ----------------
+# screen variables
+# ----------------
+
+# TODO
 
 # ----------
 # error list
@@ -56,6 +64,7 @@ def init_cache(size):
     for z in range(0, CACHE_LAYERS):
         x = 0
         a = cache_t() # line_t array
+        a.cache_id = z
         while (x < _alloc):
             addr += 1
             for y in range(0, 4):
@@ -100,6 +109,7 @@ class block_t():
     updated = False # check if updated
     tag = 0 # flag for fully associative mapping
     used = 0 # timestamp flag for LRU
+    # 0 means unused (useful for malloc() and free())
     # TODO: update the Updated var to false when moving
     # data to cache
     
@@ -156,6 +166,7 @@ class grimebuf_t():
 # https://www.gatevidyalay.com/cache-mapping-cache-mapping-techniques/
 class cache_t():
     lines = []
+    cache_id = 0 # we are at cache[cache_id]
     cost = 0 # custo
     hit = 0 # cacheHit
     miss = 0 # cache miss
@@ -199,6 +210,7 @@ class cache_t():
                 result = x # returns lines addr
                 break
             x += 1
+        self.on_get()
         return result
 
     # boolean to check if cache has free space
@@ -218,17 +230,16 @@ class cache_t():
         addr = -1
         x = 0
         while (x < len(self.lines)):
-            if (self.lines[x].tag == tag):
+            # checks tag and if we have a valid line
+            if (self.lines[x].tag == tag and self.lines[x].valid == True):
                 addr = x
                 break
             x += 1
+        self.on_get()
         return addr
     
-    # frees the least recently used space (LRU)
-    # returns grimebuf_t
-    def collect(self):
-        if (self.has_space() == True):
-            return -1 # do nothing if we still have space left
+    # gets the least recently used line
+    def get_lru(self):
         line = -1 # result line_id
         uses = 9999999999 # aux
         x = 0
@@ -237,6 +248,15 @@ class cache_t():
                 uses = self.lines[x].used
                 line = x
             x += 1
+        self.on_get()
+        return line
+    
+    # frees the least recently used space (LRU)
+    # returns grimebuf_t
+    def collect(self):
+        if (self.has_space() == True):
+            return -1 # do nothing if we still have space left
+        line = self.get_lru()
         # transfer the removed data to an object
         data = grimebuf_t()
         linedata = self.evict(line)
@@ -265,10 +285,11 @@ class cache_t():
                 to_ram = self.collect()
                 # if shtf, we return a fatal error
                 # but this shouldn't happen ever
-                if (to_ram.addr == -1):
-                    return CACHE_ALLOC_ERROR
+                #if (to_ram.addr == -1):
+                #    return CACHE_ALLOC_ERROR
                 # send evicted data to queue
-                self.to_queue(to_ram)
+                if (to_ram.addr != -1):
+                    self.to_queue(to_ram)
                 # realloc evicted addr with our data
                 self.alloc(to_ram.addr, data)
     
@@ -291,9 +312,21 @@ class cache_t():
     # ---------
     
     # write-back policy: this event is fired
-    # on cache miss. 
-    def on_miss(self, cost):
-        pass
+    # on cache get attempt
+    # (this should be fired every time we use a get_[...])
+    def on_get(self):
+        # 10 100 1000...
+        _cost = pow(10, (1 + self.cache_id))
+        self.cost += _cost
+        
+    # on cache hit
+    def on_hit(self, addr, time):
+        self.hit += 1
+        self.lines[addr].on_use(time)
+        
+    # on cache miss 
+    def on_miss(self):
+        self.miss += 1
     
     # on cache update
     def on_update(self):
@@ -324,11 +357,24 @@ class cmu_t(): # also known as UCM in portuguese
     def evict(self, addr):
         data = self.blocks[addr].to_data()
         self.blocks[addr].updated = False
+        self.blocks[addr].tag = 0
+        self.blocks[addr].used = 0
         return data
     
     def collect(self):
         if (self.has_space() == True):
             return -1 # do nothing if we still have space left
+        block = self.get_lru()
+        # transfer the removed data to an object
+        data = grimebuf_t()
+        blockdata = self.evict(block)
+        data.addr = block
+        data.word = blockdata.word
+        data.tag = blockdata.tag
+        return data # evicts garbage block and returns its data
+    
+    # unused. ram blows itself up if completely used
+    def get_lru(self):
         block = -1 # result line_id
         uses = 9999999999 # aux
         x = 0
@@ -337,13 +383,8 @@ class cmu_t(): # also known as UCM in portuguese
                 uses = self.blocks[x].used
                 block = x
             x += 1
-        # transfer the removed data to an object
-        data = grimebuf_t()
-        blockdata = self.evict(block)
-        data.addr = block
-        data.word = blockdata.word
-        data.tag = blockdata.tag
-        return data # evicts garbage block and returns its data
+        self.on_get()
+        return block
     
     # checks if RAM blocks have a certain tag
     def get_tag(self, tag):
@@ -354,6 +395,7 @@ class cmu_t(): # also known as UCM in portuguese
                 addr = x
                 break
             x += 1
+        self.on_get()
         return addr
     
     # checks if RAM has a free block slot
@@ -361,9 +403,10 @@ class cmu_t(): # also known as UCM in portuguese
         result = -1
         # loop all blocks
         for x in range(0, len(self.blocks)):
-            if (self.blocks[x].flag != 0):
+            if (self.blocks[x].tag != 0):
                 result = x
                 break
+        self.on_get()
         return result
                 
     # -------------
@@ -386,6 +429,14 @@ class cmu_t(): # also known as UCM in portuguese
                 # returns an overflow error: RAM is full
                 return RAM_FULL
         return 0
+    
+    def on_get(self):
+        self.cost += 10000
+    
+    # activates on ram hit
+    def on_hit(self, addr, time):
+        self.hit += 1
+        self.blocks[addr].on_use(time)
     
     # ---------------
     # everything else
@@ -434,7 +485,75 @@ class disk_t():
         self.blocks = init_data(MAX_DRIVE)
     def __init__(self):
         self.init_blocks()
-        
+
+# screen messages
+class msg_t():
+    message = ''
+    color = 1
+
+# screen/console/monitor
+class screen_t():
+    cpu_msg = [] # all cpu messages
+    console_msg = [] # all console messages
+    instr_index = 0
+    data_index = [0, 0] # cache/addr
+    cpu_index = 0 # index for showing cpu
+    console_index = 0 # index for showing console
+    color_length = 6 # how many colors we have
+    height = 22 # height of console and ram screens
+    
+    def __init__(self):
+        self.console_log('     Welcome to Grimusk 2', 4)
+        for x in range(0, 21):
+            self.console_log('', 1)
+    
+    def console_log(self, message, color = 1):
+        if (color == 0 or color > self.color_length): color = 1
+        if len(message) >= 60:
+            r = msg_t()
+            r.message = 'this message was too big'
+            r.color = 5
+            self.console_msg.insert(0, r)
+            return
+        if len(message) < 30:
+            r = msg_t()
+            r.message = message
+            r.color = color
+            # add to message list
+            self.console_msg.insert(0, r)
+        else:
+            x = msg_t()
+            x.message = message[0:30]
+            x.color = color
+            y = msg_t()
+            y.message = message[30:(len(message))]
+            y.color = color
+            self.console_msg.insert(0, x)
+            self.console_msg.insert(0, y)
+    
+    def print_console(self, win): # to console
+        temp = self.console_msg
+        #if len(temp) < 22:
+        #    for x in range(len(temp), 22):
+        #        r = msg_t()
+        #        temp.insert(x, r)
+        for y in range(0, 22):
+            start = self.console_index + y
+            msg = temp[len(temp) - 1 - start]
+            end = msg.message
+            _y = start + 1
+            _print(win, _y, end, msg.color)
+            win.refresh()
+
+    def print_cpu(self, win, start):
+        pass # TODO
+    
+def _print(win, y, msg, color):
+    try:
+        win.addstr(y, 1, msg, curses.color_pair(color))
+    except curses.error:
+        pass    
+    
 # our computer
 class computer():
     status = 'NULL'
@@ -442,15 +561,16 @@ class computer():
     cpu = cpu_t()
     cmu = cmu_t()
     disk = disk_t()
-    # screen = (is defined in our visualizer)
+    screen = screen_t()
     
     # --------------
     # error handling
     # --------------
     
-    # shtf
+    # shtf, quit grimusk
     def kernel_panic(self):
         self.QUIT_FLAG = True
+        self.status = 'KERNEL PANIC'
     
     # deals with fatal errors
     def fatal_error(self, error):
@@ -461,6 +581,53 @@ class computer():
     # inter-hardware functions
     # ------------------------
     
+    # promotes data from a cache layer to a lesser one
+    # swaps the LRU from the lesser cache
+    def promote(self, tag, layer):
+        # ignore first cache
+        if (layer == 0): return
+        # checks if there's free space in the lower layer
+        x = self.cpu.cache[layer-1].get_free()
+        if (x != -1):
+            # where our tag is
+            addr = self.cpu.cache[layer].get_tag(tag)
+            # our tag's data using its addr
+            data = self.cpu.cache[layer].lines[addr]
+            # store our data in this free space
+            #self.cpu.cache[layer-1].push(data)
+            self.cpu.cache[layer-1].alloc(x, data) # directly
+            return
+        # else...
+        # swap this line with the LRU from the lower cache
+        this_addr = self.cpu.cache[layer].get_tag(tag)
+        lru_addr = self.cpu.cache[layer-1].get_lru()
+        aux = self.cpu.cache[layer].lines[this_addr]
+        _this = self.cpu.cache[layer].lines[this_addr]
+        _lru = self.cpu.cache[layer-1].lines[lru_addr]
+        self.cpu.cache[layer].lines[this_addr] = _lru
+        self.cpu.cache[layer-1].lines[lru_addr] = aux
+        
+    # promotes from ram
+    def promote_ram(self, tag):
+        size = CACHE_LAYERS - 1
+        x = self.cpu.cache[size].get_free()
+        addr = self.cmu.get_tag(tag)
+        data = self.cmu.blocks[addr]
+        # if there's free space
+        if (x != -1):
+            # stores data to the free slot in the last cache
+            self.cpu.cache[size].alloc(x, data)
+            # evicts the data's original address
+            self.cmu.evict(addr)
+        else:
+            # push to the last cache and let the function
+            # transfer stuff to its queue then the RAM
+            self.cpu.cache[size].push(data)
+            
+            # no free space found, gotta move something
+            #lru = self.cpu.cache[size].collect()
+            
+            
     # gets data from either cache or RAM
     # using its tag as reference
     # we use fully associative mapping and look for
@@ -469,25 +636,51 @@ class computer():
     # TODO: look in parallel using our CPU's cores
     def get_data(self, tag):
         found = -1 # flag. will keep being -1 until we find something
+        result = data_t() # our result
         # try getting from caches
         # loop all caches
         for x in range(0, CACHE_LAYERS):
-            
-        # try getting from RAM
+            found = self.cpu.cache[x].get_tag(tag)
+            if (found != -1): # if we found it
+                self.cpu.cache[x].on_hit(found, self.cpu.pc) # give it a hit
+                result = self.cpu.cache[x].lines[found].to_data()
+                if (x != 0): # if we're not at the first layer
+                    # punish all previous caches
+                    for z in range (0, CACHE_LAYERS):
+                        if (z < x):
+                            self.cpu.cache[z].on_miss()
+                    # promote this data to a lower cache
+                    self.promote(tag, x)
+                break
+        # if we still didn't find it
+        if (found == -1):
+            # punish all caches
+            for x in range(0, CACHE_LAYERS):
+                self.cpu.cache[x].on_miss()
+            # try getting from RAM
+            found = self.cmu.get_tag(tag)
+            if (found != -1): # if found
+                self.cmu.on_hit(found, self_cpu.pc)
+                result = self.cmu.blocks[found].to_data()
+                # promotes from ram
+                self.promote_ram(tag)
+            else: # if not found, we throw an error
+                return -1
+        return result
     
     # stores data into memory, handling caching
     # as well using fully associative mapping
     def store_data(self, data):
-        
+        pass # TODO
     
     # retrieves data from HDD
     # using its tag as reference
     def get_drive(self, tag):
-        pass
+        pass # TODO
     
     # stores data into HDD
     def store_drive(self, data):
-        pass
+        pass # TODO
     
     # saves cache queues into RAM
     def save_cache_queue(self):
